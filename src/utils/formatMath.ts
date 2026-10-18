@@ -14,6 +14,35 @@ export function formatMathNotation(text?: string): string {
     // Strip LaTeX display delimiters
     .replace(/\$\$/g, '')
     .replace(/\$/g, '')
+    // LaTeX space commands
+    .replace(/\\quad\s*;\s*\\quad/g, '  ;  ')
+    .replace(/\\qquad/g, '    ')
+    .replace(/\\quad/g, '   ')
+    .replace(/\\[,;!]/g, ' ')
+    .replace(/\\\s+/g, ' ')
+    // LaTeX text commands: \text{abc}, \mathrm{abc}, \mathbf{abc}
+    .replace(/\\text\{([^}]+)\}/g, '$1')
+    .replace(/\\mathrm\{([^}]+)\}/g, '$1')
+    .replace(/\\mathbf\{([^}]+)\}/g, '$1')
+    // Bullet points
+    .replace(/\\bullet/g, '•')
+    // Angles & geometry symbols
+    .replace(/\\widehat\{([^}]+)\}/g, '∠$1')
+    .replace(/\\angle/g, '∠')
+    .replace(/\\parallel/g, ' // ')
+    .replace(/\\perp/g, ' ⊥ ')
+    .replace(/\\triangle/g, '△')
+    // Left / Right fences
+    .replace(/\\left\(/g, '(')
+    .replace(/\\right\)/g, ')')
+    .replace(/\\left\[/g, '[')
+    .replace(/\\right\]/g, ']')
+    .replace(/\\left\\{/g, '{')
+    .replace(/\\right\\}/g, '}')
+    .replace(/\\left\|/g, '|')
+    .replace(/\\right\|/g, '|')
+    .replace(/\\left/g, '')
+    .replace(/\\right/g, '')
     // Arrows & Logical implications
     .replace(/\\Rightarrow/g, ' ⇒ ')
     .replace(/\\Leftarrow/g, ' ⇐ ')
@@ -43,7 +72,7 @@ export function formatMathNotation(text?: string): string {
     .replace(/\\pm/g, '±')
     .replace(/\\mp/g, '∓')
     // Degree
-    .replace(/\\degree|\\circ|\^\\circ/g, '°')
+    .replace(/\\degree|\\circ|\^\\circ|\^\{\\circ\}/g, '°')
     // Ellipsis & Infinity & Constants
     .replace(/\\ldots|\\dots/g, '...')
     .replace(/\\infty/g, '∞')
@@ -55,15 +84,14 @@ export function formatMathNotation(text?: string): string {
     .replace(/\\Delta/g, 'Δ')
     .replace(/\\delta/g, 'δ')
     .replace(/\\theta/g, 'θ')
-    // Geometry symbols
-    .replace(/\\angle/g, '∠')
-    .replace(/\\parallel/g, ' // ')
-    .replace(/\\perp/g, ' ⊥ ')
-    .replace(/\\triangle/g, '△')
     // Set symbols
     .replace(/\\in\b/g, '∈')
     .replace(/\\notin\b/g, '∉')
     .replace(/\\subset\b/g, '⊂')
+    // Braced subscripts: S_{thang} -> S_thang, S_{đáy} -> S_đáy
+    .replace(/_\{([^}]+)\}/g, '_$1')
+    // Braced superscripts: a^{m+n} -> a^(m+n), 180^{\circ} -> 180°
+    .replace(/\^\{([^}]+)\}/g, '^($1)')
     // Superscript numbers when written with caret ^
     .replace(/\^0/g, '⁰')
     .replace(/\^1/g, '¹')
@@ -77,6 +105,15 @@ export function formatMathNotation(text?: string): string {
     .replace(/\^9/g, '⁹')
     .replace(/\^n/g, 'ⁿ')
     .replace(/\^m/g, 'ᵐ')
+    // Common subscript numbers: _0 to _9 -> ₀ to ₉
+    .replace(/_0/g, '₀')
+    .replace(/_1/g, '₁')
+    .replace(/_2/g, '₂')
+    .replace(/_3/g, '₃')
+    .replace(/_4/g, '₄')
+    // Remove isolated backslashes before normal characters or brackets
+    .replace(/\\([()[\]{}])/g, '$1')
+    .replace(/\\/g, ' ')
     // Clean up multiple spaces
     .replace(/[ \t]+/g, ' ')
     .trim();
