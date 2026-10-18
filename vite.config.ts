@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
   const mathbotUrl = process.env.VITE_MATHBOT_URL || env.VITE_MATHBOT_URL || 'https://vutrutoanhoctest4.vercel.app/api/mathbot';
 
   return {
-    base: '/vutrutoanhoctest4/',
+    base: '/vutrutoanhoctest5/',
     plugins: [react(), tailwindcss()],
     define: {
       'import.meta.env.VITE_SUPABASE_URL': JSON.stringify(supabaseUrl),
