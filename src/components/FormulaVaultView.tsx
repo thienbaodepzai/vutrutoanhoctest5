@@ -473,9 +473,9 @@ export const FormulaVaultView: React.FC = () => {
                     </div>
 
                     {/* Explanation */}
-                    <p className={`text-xs sm:text-sm leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-                      {item.explanation}
-                    </p>
+                    <div className={`text-xs sm:text-sm leading-relaxed ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                      <FormattedMathView content={item.explanation} />
+                    </div>
 
                     {/* Examples */}
                     {item.examples && item.examples.length > 0 && (
@@ -501,7 +501,9 @@ export const FormulaVaultView: React.FC = () => {
                     {item.tips && (
                       <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-medium">
                         <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                        <span>{item.tips}</span>
+                        <div className="flex-1">
+                          <FormattedMathView content={item.tips} />
+                        </div>
                       </div>
                     )}
                   </div>

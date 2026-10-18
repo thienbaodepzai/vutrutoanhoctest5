@@ -73,10 +73,64 @@ export const LeaderboardView: React.FC = () => {
   ]);
 
   const filteredEntries = React.useMemo(() => {
+    // Synchronize current user's verified XP directly from user profile (strict source of truth)
+    const synchronizedEntries = entries.map((entry) => {
+      const isCurrentUser =
+        Boolean(supabaseUserId && entry.user_id === supabaseUserId) ||
+        Boolean(user?.name && entry.display_name.trim().toLowerCase() === user.name.trim().toLowerCase());
+
+      if (isCurrentUser && user) {
+        const totalQ = user.answeredQuestionsCount;
+        const correctQ = user.correctAnswersCount;
+        const wrongQ = Math.max(0, totalQ - correctQ);
+        const accuracy = totalQ > 0 ? Math.round((correctQ / totalQ) * 100) : (user.completedLessons.length > 0 ? 100 : null);
+        return {
+          ...entry,
+          score: user.xp, // STRICT: always equals real user.xp
+          completed_lessons: Math.max(entry.completed_lessons, user.completedLessons.length),
+          correct_count: Math.max(entry.correct_count, correctQ),
+          wrong_count: wrongQ,
+          questions_answered: Math.max(entry.questions_answered, totalQ),
+          accuracy_rate: accuracy ?? entry.accuracy_rate,
+          grade: user.grade,
+          avatar: user.avatar,
+        };
+      }
+      return entry;
+    });
+
+    // If current user is not in the list yet and has XP > 0 or completed lessons:
+    const hasCurrentUser = synchronizedEntries.some(
+      (e) =>
+        (supabaseUserId && e.user_id === supabaseUserId) ||
+        (user?.name && e.display_name.trim().toLowerCase() === user.name.trim().toLowerCase())
+    );
+    if (!hasCurrentUser && user && (user.completedLessons.length > 0 || user.answeredQuestionsCount > 0 || user.xp > 0)) {
+      const totalQ = user.answeredQuestionsCount;
+      const correctQ = user.correctAnswersCount;
+      const wrongQ = Math.max(0, totalQ - correctQ);
+      const accuracy = totalQ > 0 ? Math.round((correctQ / totalQ) * 100) : (user.completedLessons.length > 0 ? 100 : null);
+      synchronizedEntries.push({
+        user_id: supabaseUserId || `local_${user.name}`,
+        display_name: user.name,
+        avatar: user.avatar,
+        grade: user.grade,
+        score: user.xp,
+        completed_lessons: user.completedLessons.length,
+        in_progress_lessons: 0,
+        questions_answered: totalQ,
+        correct_count: correctQ,
+        wrong_count: wrongQ,
+        accuracy_rate: accuracy,
+        updated_at: new Date().toISOString(),
+        rank: 1,
+      });
+    }
+
     const byGrade =
       gradeFilter === 'all'
-        ? entries
-        : entries.filter((e) => Number(e.grade) === gradeFilter);
+        ? synchronizedEntries
+        : synchronizedEntries.filter((e) => Number(e.grade) === gradeFilter);
 
     // Re-rank within the active grade filter while preserving strict tie-breaker sorting
     const ranked = byGrade
@@ -98,7 +152,7 @@ export const LeaderboardView: React.FC = () => {
     if (!searchUserQuery.trim()) return ranked;
     const q = searchUserQuery.trim().toLowerCase();
     return ranked.filter((item) => item.display_name.toLowerCase().includes(q));
-  }, [entries, gradeFilter, searchUserQuery]);
+  }, [entries, gradeFilter, searchUserQuery, user, supabaseUserId]);
 
   const formatDateTime = (isoString?: string) => {
     if (!isoString) return '—';
@@ -523,7 +577,7 @@ export const LeaderboardView: React.FC = () => {
             {filteredEntries.map((entry) => {
               const isCurrentUser =
                 Boolean(supabaseUserId && entry.user_id === supabaseUserId) ||
-                Boolean(!supabaseUserId && user?.name && entry.display_name === user.name);
+                Boolean(user?.name && entry.display_name.trim().toLowerCase() === user.name.trim().toLowerCase());
 
               return (
                 <div

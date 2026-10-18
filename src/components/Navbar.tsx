@@ -1,7 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { useMathVerse } from '../context/MathVerseContext';
 import { getUserLevel, getNextLevel } from '../data/badgesData';
-import { Volume2, VolumeX, Flame, Award, ChevronDown, Rocket, Sparkles, Settings as SettingsIcon, Music, Pause, Lock, Sun, Moon, Crown, Zap } from 'lucide-react';
+import {
+  Volume2,
+  VolumeX,
+  Flame,
+  Award,
+  ChevronDown,
+  Rocket,
+  Sparkles,
+  Settings as SettingsIcon,
+  Music,
+  Pause,
+  Lock,
+  Sun,
+  Moon,
+  Crown,
+  Zap,
+  RefreshCw,
+  Film,
+  CheckCircle2,
+} from 'lucide-react';
 import { Grade } from '../types/mathverse';
 import { soundManager } from '../utils/soundEffects';
 import { musicPlayer } from '../utils/musicPlayer';
@@ -9,7 +28,12 @@ import { isGradeUnlocked } from '../data/promotionExamsData';
 import { UserAvatar } from './UserAvatar';
 import { ROOT_ADMIN_EMAIL } from '../utils/adminUtils';
 
-export const Navbar: React.FC = () => {
+interface NavbarProps {
+  onOpenMusicModal?: () => void;
+  onOpenBgModal?: () => void;
+}
+
+export const Navbar: React.FC<NavbarProps> = ({ onOpenMusicModal, onOpenBgModal }) => {
   const {
     user,
     activeTab,
@@ -23,10 +47,13 @@ export const Navbar: React.FC = () => {
     toggleTheme,
     isAdmin,
     userEmail,
+    syncAllDataNow,
+    isSyncingData,
   } = useMathVerse();
 
   const [gradeDropdownOpen, setGradeDropdownOpen] = useState(false);
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [syncToast, setSyncToast] = useState<string | null>(null);
 
   useEffect(() => {
     const unsub = musicPlayer.subscribe((state) => {
@@ -195,13 +222,17 @@ export const Navbar: React.FC = () => {
               </span>
             </div>
 
-            {/* Background Study Music Toggle */}
+            {/* Background Music Player & Upload Button */}
             <button
               onClick={() => {
                 soundManager.playClickSound();
-                musicPlayer.togglePlay();
+                if (onOpenMusicModal) {
+                  onOpenMusicModal();
+                } else {
+                  musicPlayer.togglePlay();
+                }
               }}
-              title={isMusicPlaying ? 'Tạm dừng nhạc nền tập trung' : 'Phát nhạc nền thư giãn tập trung'}
+              title="Mở Trình phát Nhạc & Tải bài hát từ máy (.mp3, .wav)"
               className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 ${
                 isMusicPlaying
                   ? isLight
@@ -213,11 +244,52 @@ export const Navbar: React.FC = () => {
               }`}
             >
               <Music className={`w-4 h-4 ${isMusicPlaying ? 'animate-pulse text-cyan-500' : ''}`} />
-              {isMusicPlaying && (
-                <span className={`hidden md:inline text-[11px] font-bold ${isLight ? 'text-cyan-700' : 'text-cyan-300'}`}>
-                  Nhạc
-                </span>
-              )}
+              <span className={`hidden md:inline text-[11px] font-bold ${isMusicPlaying ? (isLight ? 'text-cyan-700' : 'text-cyan-300') : ''}`}>
+                Nhạc
+              </span>
+            </button>
+
+            {/* Change Dynamic Background (Upload Video/GIF/Image) */}
+            <button
+              onClick={() => {
+                soundManager.playClickSound();
+                if (onOpenBgModal) onOpenBgModal();
+              }}
+              title="Tùy biến Hình nền (Tải ảnh, video MP4, ảnh GIF từ máy)"
+              className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 ${
+                isLight
+                  ? 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                  : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <Film className="w-4 h-4 text-purple-500" />
+              <span className="hidden xl:inline text-[11px] font-bold">
+                Nền
+              </span>
+            </button>
+
+            {/* Cloud Data Sync Button */}
+            <button
+              onClick={async () => {
+                soundManager.playClickSound();
+                const res = await syncAllDataNow();
+                setSyncToast(res.message);
+                setTimeout(() => setSyncToast(null), 3500);
+              }}
+              disabled={isSyncingData}
+              title="Đồng bộ hóa toàn bộ dữ liệu học tập lên máy chủ ngay"
+              className={`p-2 rounded-xl border transition-all cursor-pointer flex items-center gap-1.5 ${
+                isSyncingData
+                  ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
+                  : isLight
+                  ? 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-slate-900'
+                  : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white'
+              }`}
+            >
+              <RefreshCw className={`w-4 h-4 text-emerald-500 ${isSyncingData ? 'animate-spin' : ''}`} />
+              <span className="hidden xl:inline text-[11px] font-bold text-emerald-500">
+                Đồng bộ
+              </span>
             </button>
 
             {/* Sound Effects Toggle */}
@@ -308,12 +380,12 @@ export const Navbar: React.FC = () => {
                   activeTab === 'admin'
                     ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white border-amber-400 shadow-md'
                     : isLight
-                    ? 'bg-amber-50 hover:bg-amber-100 border-amber-300 text-amber-800'
-                    : 'bg-amber-500/15 hover:bg-amber-500/25 border-amber-500/40 text-amber-300'
+                    ? 'bg-amber-100 hover:bg-amber-200 border-amber-300 text-amber-900 font-bold'
+                    : 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/50 text-amber-300'
                 }`}
               >
                 <Crown className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                <span className="hidden md:inline">Admin</span>
+                <span className="inline font-extrabold">Admin</span>
               </button>
             )}
 
@@ -369,6 +441,16 @@ export const Navbar: React.FC = () => {
             >
               Nhận phần thưởng
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Real-time Data Sync Toast Banner */}
+      {syncToast && (
+        <div className="fixed top-20 right-6 z-50 animate-in fade-in slide-in-from-top-2 pointer-events-none">
+          <div className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-700 text-white rounded-2xl shadow-xl shadow-emerald-950/40 flex items-center gap-2.5 border border-emerald-400/40 font-bold text-xs sm:text-sm">
+            <CheckCircle2 className="w-5 h-5 text-emerald-300 shrink-0" />
+            <span>{syncToast}</span>
           </div>
         </div>
       )}

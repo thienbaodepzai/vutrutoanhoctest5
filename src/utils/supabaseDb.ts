@@ -419,6 +419,7 @@ export async function fetchRealLeaderboardData(options?: {
           correct_count: number;
           wrong_count: number;
           score: number;
+          hasKnownTotalXp?: boolean;
           updated_at: string;
         }
       >();
@@ -437,6 +438,7 @@ export async function fetchRealLeaderboardData(options?: {
           correct_count: 0,
           wrong_count: 0,
           score: Number(meta.xp) || 0,
+          hasKnownTotalXp: Boolean(meta.xp !== undefined && Number(meta.xp) > 0),
           updated_at: new Date().toISOString(),
         });
       }
@@ -454,6 +456,7 @@ export async function fetchRealLeaderboardData(options?: {
             correct_count: 0,
             wrong_count: 0,
             score: 0,
+            hasKnownTotalXp: false,
             updated_at: r.completed_at || new Date().toISOString(),
           };
           if (r.lesson_id) cur.completedIds.add(r.lesson_id);
@@ -462,12 +465,14 @@ export async function fetchRealLeaderboardData(options?: {
           cur.correct_count += c;
           cur.wrong_count += w;
 
-          // Calculate XP earned for this result
-          const gainedXp =
-            r.answers && typeof r.answers.xpEarned === 'number'
-              ? Number(r.answers.xpEarned)
-              : 50 + c * 15 + w * 2;
-          cur.score += gainedXp;
+          // Only calculate and add XP if total XP is not already known from user metadata
+          if (!cur.hasKnownTotalXp) {
+            const gainedXp =
+              r.answers && typeof r.answers.xpEarned === 'number'
+                ? Number(r.answers.xpEarned)
+                : 50 + c * 15 + w * 2;
+            cur.score += gainedXp;
+          }
 
           if (r.completed_at && new Date(r.completed_at) > new Date(cur.updated_at)) {
             cur.updated_at = r.completed_at;
@@ -491,6 +496,7 @@ export async function fetchRealLeaderboardData(options?: {
             correct_count: 0,
             wrong_count: 0,
             score: 0,
+            hasKnownTotalXp: false,
             updated_at: p.updated_at || new Date().toISOString(),
           };
           if (p.status === 'completed' || Number(p.progress_percent) >= 100) {
@@ -503,10 +509,12 @@ export async function fetchRealLeaderboardData(options?: {
             const pw = Math.max(0, Number(p.answers.wrongCount) || 0);
             cur.correct_count += pc;
             cur.wrong_count += pw;
-            cur.score +=
-              typeof p.answers.xpEarned === 'number'
-                ? Number(p.answers.xpEarned)
-                : pc * 15 + pw * 2;
+            if (!cur.hasKnownTotalXp) {
+              cur.score +=
+                typeof p.answers.xpEarned === 'number'
+                  ? Number(p.answers.xpEarned)
+                  : pc * 15 + pw * 2;
+            }
           }
           if (p.updated_at && new Date(p.updated_at) > new Date(cur.updated_at)) {
             cur.updated_at = p.updated_at;
@@ -571,7 +579,30 @@ export async function fetchRealLeaderboardData(options?: {
     (u) => u.completed_lessons > 0 || u.in_progress_lessons > 0 || u.questions_answered > 0
   ).length;
 
+  // Retrieve current active user profile XP to guarantee strict truth
+  let localRealXp: number | null = null;
+  let localRealName: string | null = null;
+  try {
+    const rawProf = localStorage.getItem('mathverse_user_profile_v1');
+    if (rawProf) {
+      const parsed = JSON.parse(rawProf);
+      if (parsed && typeof parsed.xp === 'number') {
+        localRealXp = parsed.xp;
+        localRealName = parsed.name ? parsed.name.trim().toLowerCase() : null;
+      }
+    }
+  } catch {}
+
   const sortedEntries: LeaderboardEntry[] = allUsers
+    .map((u) => {
+      if (localRealName && u.display_name.trim().toLowerCase() === localRealName && localRealXp !== null) {
+        return {
+          ...u,
+          score: localRealXp, // STRICT: real user.xp is the single source of truth
+        };
+      }
+      return u;
+    })
     .filter((u) => u.score > 0 && (u.completed_lessons > 0 || u.questions_answered > 0))
     .sort((a, b) => {
       // Primary: Score descending

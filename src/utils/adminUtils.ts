@@ -25,10 +25,20 @@ export interface AdminAnnouncement {
   createdAt: string;
 }
 
+export interface DelegatedAdminEntry {
+  email: string;
+  name: string;
+  avatar?: string;
+  addedBy: string;
+  addedAt: string;
+  role: 'admin' | 'moderator';
+}
+
 export interface AdminStoreData {
   bannedUsers: BannedUserEntry[];
   announcements: AdminAnnouncement[];
   deletedSurveyIds: string[];
+  delegatedAdmins: DelegatedAdminEntry[];
 }
 
 const DEFAULT_ANNOUNCEMENTS: AdminAnnouncement[] = [
@@ -55,6 +65,7 @@ export function getLocalAdminStore(): AdminStoreData {
             ? parsed.announcements
             : DEFAULT_ANNOUNCEMENTS,
           deletedSurveyIds: Array.isArray(parsed.deletedSurveyIds) ? parsed.deletedSurveyIds : [],
+          delegatedAdmins: Array.isArray(parsed.delegatedAdmins) ? parsed.delegatedAdmins : [],
         };
       }
     }
@@ -65,6 +76,7 @@ export function getLocalAdminStore(): AdminStoreData {
     bannedUsers: [],
     announcements: DEFAULT_ANNOUNCEMENTS,
     deletedSurveyIds: [],
+    delegatedAdmins: [],
   };
 }
 
@@ -78,6 +90,9 @@ export function saveLocalAdminStore(store: Partial<AdminStoreData>): AdminStoreD
     deletedSurveyIds: Array.isArray(store.deletedSurveyIds)
       ? store.deletedSurveyIds
       : current.deletedSurveyIds,
+    delegatedAdmins: Array.isArray(store.delegatedAdmins)
+      ? store.delegatedAdmins
+      : current.delegatedAdmins,
   };
   try {
     localStorage.setItem(ADMIN_LOCAL_STORAGE_KEY, JSON.stringify(next));
@@ -124,8 +139,18 @@ export function setPreviewAsStudentMode(enabled: boolean): void {
 }
 
 /**
+ * Kiểm tra xem người dùng hiện tại có phải là Root Admin (Chủ sở hữu tối cao) không.
+ */
+export function checkIsRootAdmin(userEmail?: string | null): boolean {
+  if (!userEmail || typeof userEmail !== 'string') return false;
+  return userEmail.trim().toLowerCase() === ROOT_ADMIN_EMAIL.toLowerCase();
+}
+
+/**
  * Kiểm tra xem người dùng hiện tại có phải là Admin không.
- * QUY TẮC BẮT BUỘC: CHỈ DUY NHẤT chủ sở hữu với email trùng khớp mới được làm Admin!
+ * Quyền Admin bao gồm:
+ * 1. Root Admin (Chủ sở hữu email tnthienbao230715@gmail.com)
+ * 2. Các Admin được Root Admin bổ nhiệm và phân quyền
  */
 export function checkIsUserAdmin(
   userName?: string | null,
@@ -137,12 +162,85 @@ export function checkIsUserAdmin(
     return false;
   }
 
-  if (!userEmail || typeof userEmail !== 'string') {
-    return false;
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  const cleanName = (userName || '').trim().toLowerCase();
+
+  // 1. Root Admin luôn luôn là Admin
+  if (cleanEmail && cleanEmail === ROOT_ADMIN_EMAIL.toLowerCase()) {
+    return true;
   }
 
-  const cleanEmail = userEmail.trim().toLowerCase();
-  return cleanEmail === ROOT_ADMIN_EMAIL.toLowerCase();
+  // 2. Kiểm tra danh sách Admin được bổ nhiệm
+  const activeStore = store || getLocalAdminStore();
+  const delegated = activeStore.delegatedAdmins || [];
+  const found = delegated.some(
+    (a) =>
+      (cleanEmail && a.email && a.email.toLowerCase() === cleanEmail) ||
+      (cleanName && a.name && a.name.toLowerCase() === cleanName)
+  );
+
+  return Boolean(found);
+}
+
+/**
+ * Bổ nhiệm một người dùng làm Admin hoặc Kiểm duyệt viên
+ */
+export function appointAdminUser(entry: {
+  email: string;
+  name: string;
+  avatar?: string;
+  addedBy: string;
+  role?: 'admin' | 'moderator';
+}): AdminStoreData {
+  const current = getLocalAdminStore();
+  const cleanEmail = (entry.email || '').trim().toLowerCase();
+  const cleanName = (entry.name || '').trim();
+
+  // Không cần thêm lại Root Admin
+  if (cleanEmail === ROOT_ADMIN_EMAIL.toLowerCase()) {
+    return current;
+  }
+
+  // Lọc trùng theo email hoặc name
+  const filtered = (current.delegatedAdmins || []).filter(
+    (a) =>
+      !(cleanEmail && a.email.toLowerCase() === cleanEmail) &&
+      !(cleanName && a.name.toLowerCase() === cleanName.toLowerCase())
+  );
+
+  const newAdmin: DelegatedAdminEntry = {
+    email: cleanEmail || `${cleanName.toLowerCase().replace(/\s+/g, '')}@mathverse.edu.vn`,
+    name: cleanName || 'Quản trị viên',
+    avatar: entry.avatar || '👑',
+    addedBy: entry.addedBy || 'Chủ sở hữu',
+    addedAt: new Date().toISOString(),
+    role: entry.role || 'admin',
+  };
+
+  return saveLocalAdminStore({
+    delegatedAdmins: [newAdmin, ...filtered],
+  });
+}
+
+/**
+ * Thu hồi quyền Admin của một người dùng
+ */
+export function revokeAdminUser(identifier: string): AdminStoreData {
+  const current = getLocalAdminStore();
+  const cleanId = (identifier || '').trim().toLowerCase();
+
+  // Tuyệt đối không thể thu hồi Root Admin
+  if (cleanId === ROOT_ADMIN_EMAIL.toLowerCase()) {
+    return current;
+  }
+
+  const nextList = (current.delegatedAdmins || []).filter(
+    (a) => a.email.toLowerCase() !== cleanId && a.name.toLowerCase() !== cleanId
+  );
+
+  return saveLocalAdminStore({
+    delegatedAdmins: nextList,
+  });
 }
 
 /**

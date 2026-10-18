@@ -103,6 +103,12 @@ export interface UserProfile {
   soundEnabled: boolean;
   unlockedGrades: Grade[];
   completedGradeExams: Record<number, { passed: boolean; score: number; total: number; date: string }>;
+  speedDuelRecord?: {
+    highScore: number;
+    maxStreak: number;
+    modeScores: Record<string, number>;
+    lastAchievedAt?: string;
+  };
 }
 
 export interface PromotionExam {

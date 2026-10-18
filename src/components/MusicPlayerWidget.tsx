@@ -1,326 +1,433 @@
-import React, { useState, useEffect } from 'react';
-import { musicPlayer, MUSIC_TRACKS, MusicTrack } from '../utils/musicPlayer';
-import { useMathVerse } from '../context/MathVerseContext';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  Music,
+  musicPlayer,
+  PlayerState,
+  MusicTrack,
+  LoopMode,
+} from '../utils/musicPlayer';
+import { useMathVerse } from '../context/MathVerseContext';
+import { soundManager } from '../utils/soundEffects';
+import {
   Play,
   Pause,
-  SkipForward,
   SkipBack,
+  SkipForward,
   Volume2,
   VolumeX,
-  Sparkles,
+  Upload,
+  Repeat,
+  Repeat1,
+  Shuffle,
+  Music,
+  Trash2,
   X,
-  Headphones,
-  Sliders,
+  ListMusic,
+  Disc3,
+  Check,
 } from 'lucide-react';
-import { soundManager } from '../utils/soundEffects';
 
-export const MusicPlayerWidget: React.FC = () => {
+interface Props {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export const MusicPlayerWidget: React.FC<Props> = ({ isOpen, onClose }) => {
   const { theme } = useMathVerse();
   const isLight = theme === 'light';
 
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTrackId, setCurrentTrackId] = useState('cosmic-nebula');
-  const [volume, setVolume] = useState(0.45);
-  const [isOpen, setIsOpen] = useState(false);
+  const [playerState, setPlayerState] = useState<PlayerState>(() => musicPlayer.getState());
+  const [isUploading, setIsUploading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // Subscribe to music player state
-    const unsubscribe = musicPlayer.subscribe((state) => {
-      setIsPlaying(state.isPlaying);
-      setCurrentTrackId(state.trackId);
-      setVolume(state.volume);
+    const unsub = musicPlayer.subscribe((state) => {
+      setPlayerState({ ...state });
     });
-
-    const initial = musicPlayer.getState();
-    setIsPlaying(initial.isPlaying);
-    setCurrentTrackId(initial.trackId);
-    setVolume(initial.volume);
-
-    return () => {
-      unsubscribe();
-    };
+    return () => unsub();
   }, []);
 
-  const currentTrack = MUSIC_TRACKS.find((t) => t.id === currentTrackId) || MUSIC_TRACKS[0];
+  if (!isOpen) return null;
 
-  const handleTogglePlay = (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    soundManager.playClickSound();
-    musicPlayer.togglePlay();
+  const {
+    isPlaying,
+    currentTrack,
+    volume,
+    currentTime,
+    duration,
+    loopMode,
+    isShuffle,
+    allTracks,
+  } = playerState;
+
+  const formatTime = (secs: number) => {
+    if (!secs || isNaN(secs) || secs < 0) return '0:00';
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  const handleTrackChange = (track: MusicTrack) => {
-    soundManager.playClickSound();
-    musicPlayer.setTrack(track.id);
-    if (!isPlaying) {
-      musicPlayer.play();
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setErrorMsg(null);
+    setIsUploading(true);
+
+    try {
+      if (file.size > 50 * 1024 * 1024) {
+        throw new Error('Tệp nhạc quá lớn (tối đa 50MB). Vui lòng chọn tệp nhỏ hơn.');
+      }
+
+      await musicPlayer.addCustomTrack(file);
+      soundManager.playCorrectSound();
+    } catch (err: any) {
+      soundManager.playWrongSound();
+      setErrorMsg(err.message || 'Không thể tải tệp nhạc lên.');
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  const handleNextTrack = (e: React.MouseEvent) => {
+  const handleRemoveTrack = async (e: React.MouseEvent, trackId: string) => {
     e.stopPropagation();
     soundManager.playClickSound();
-    const currentIndex = MUSIC_TRACKS.findIndex((t) => t.id === currentTrackId);
-    const nextIndex = (currentIndex + 1) % MUSIC_TRACKS.length;
-    musicPlayer.setTrack(MUSIC_TRACKS[nextIndex].id);
-    if (!isPlaying) {
-      musicPlayer.play();
-    }
+    await musicPlayer.removeCustomTrack(trackId);
   };
 
-  const handlePrevTrack = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const toggleLoopMode = () => {
     soundManager.playClickSound();
-    const currentIndex = MUSIC_TRACKS.findIndex((t) => t.id === currentTrackId);
-    const prevIndex = (currentIndex - 1 + MUSIC_TRACKS.length) % MUSIC_TRACKS.length;
-    musicPlayer.setTrack(MUSIC_TRACKS[prevIndex].id);
-    if (!isPlaying) {
-      musicPlayer.play();
-    }
-  };
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
-    setVolume(val);
-    musicPlayer.setVolume(val);
+    const modes: LoopMode[] = ['all', 'one', 'none'];
+    const next = modes[(modes.indexOf(loopMode) + 1) % modes.length];
+    musicPlayer.setLoopMode(next);
   };
 
   return (
-    <>
-      {/* Floating Mini Player Widget */}
-      <div className="fixed bottom-20 sm:bottom-6 left-4 z-40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm animate-in fade-in">
+      <div
+        className={`w-full max-w-xl rounded-3xl border shadow-2xl overflow-hidden flex flex-col max-h-[92vh] ${
+          isLight
+            ? 'bg-white border-slate-200 text-slate-800'
+            : 'bg-slate-900 border-slate-700/80 text-white'
+        }`}
+      >
+        {/* Header */}
+        <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-cyan-500 to-indigo-600 text-white flex items-center justify-center shadow-md">
+              <Music className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base sm:text-lg">Trình phát Nhạc Học tập MathVerse</h3>
+              <p className={`text-xs ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                Tải nhạc từ máy của bạn (.mp3, .wav, .m4a) hoặc nghe nhạc tập trung Alpha 432Hz
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              soundManager.playClickSound();
+              onClose();
+            }}
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Player Vinyl & Track Info Showcase */}
         <div
-          onClick={() => {
-            setIsOpen(!isOpen);
-            soundManager.playClickSound();
-          }}
-          className={`flex items-center gap-2.5 px-3.5 py-2 rounded-2xl border backdrop-blur-xl shadow-xl transition-all cursor-pointer group ${
+          className={`p-5 sm:p-6 border-b flex flex-col items-center text-center relative overflow-hidden ${
             isLight
-              ? isPlaying
-                ? 'bg-white/95 border-indigo-400 text-slate-800 shadow-indigo-500/15'
-                : 'bg-white/95 border-slate-200 hover:border-slate-300 text-slate-700 shadow-slate-200'
-              : isPlaying
-              ? 'bg-slate-900/90 border-cyan-500/50 shadow-cyan-500/20 text-white'
-              : 'bg-slate-900/90 border-slate-700/80 hover:border-slate-600 text-slate-200'
+              ? 'bg-gradient-to-b from-indigo-50/50 via-white to-slate-50 border-slate-200'
+              : 'bg-gradient-to-b from-indigo-950/30 via-slate-900 to-slate-950 border-slate-800'
           }`}
         >
-          {/* Animated Waveform / Icon */}
-          <div className="relative w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-600 to-indigo-600 flex items-center justify-center text-white shrink-0 shadow-md">
-            {isPlaying ? (
-              <div className="flex items-end justify-center gap-0.5 h-4 w-4">
-                <span className="w-1 bg-white rounded-full animate-bounce [animation-duration:0.6s]" />
-                <span className="w-1 bg-white rounded-full animate-bounce [animation-duration:0.9s]" />
-                <span className="w-1 bg-white rounded-full animate-bounce [animation-duration:0.7s]" />
+          {/* Animated Vinyl Disc */}
+          <div className="relative mb-4">
+            <div
+              className={`w-24 h-24 sm:w-28 sm:h-28 rounded-full border-4 flex items-center justify-center shadow-xl transition-transform ${
+                isLight ? 'border-slate-200 bg-slate-900 text-white' : 'border-slate-700 bg-slate-950 text-white'
+              } ${isPlaying ? 'animate-spin' : ''}`}
+              style={{ animationDuration: '8s' }}
+            >
+              {/* Disc Grooves */}
+              <div className="w-16 h-16 rounded-full border border-slate-700 flex items-center justify-center">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-600 flex items-center justify-center text-sm font-bold shadow-inner">
+                  {currentTrack.icon || '🎵'}
+                </div>
               </div>
-            ) : (
-              <Headphones className="w-4 h-4 text-white" />
+            </div>
+
+            {/* Equalizer animation when playing */}
+            {isPlaying && (
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex items-end gap-1 h-5 px-2 py-0.5 rounded-full bg-black/60 backdrop-blur-xs">
+                <span className="w-1 bg-cyan-400 rounded-full animate-bounce" style={{ height: '70%', animationDelay: '0ms' }} />
+                <span className="w-1 bg-indigo-400 rounded-full animate-bounce" style={{ height: '100%', animationDelay: '150ms' }} />
+                <span className="w-1 bg-emerald-400 rounded-full animate-bounce" style={{ height: '50%', animationDelay: '300ms' }} />
+                <span className="w-1 bg-purple-400 rounded-full animate-bounce" style={{ height: '85%', animationDelay: '200ms' }} />
+              </div>
             )}
           </div>
 
-          {/* Track Name */}
-          <div className="text-left hidden xs:block sm:block max-w-[140px] truncate">
-            <div className={`text-[10px] font-semibold flex items-center gap-1 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-              <span>Nhạc tập trung</span>
-              {isPlaying && <span className={`w-1.5 h-1.5 rounded-full animate-ping ${isLight ? 'bg-indigo-600' : 'bg-cyan-400'}`} />}
+          <h4 className="font-extrabold text-base sm:text-lg max-w-sm truncate">
+            {currentTrack.title}
+          </h4>
+          <p className={`text-xs mt-0.5 max-w-md ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+            {currentTrack.desc || 'Giai điệu thư giãn học tập'}
+          </p>
+
+          {/* Time Scrubber (only for audio files with known duration) */}
+          {currentTrack.isCustom && duration > 0 ? (
+            <div className="w-full max-w-md mt-4 space-y-1">
+              <input
+                type="range"
+                min="0"
+                max={duration || 100}
+                value={currentTime}
+                onChange={(e) => musicPlayer.seek(Number(e.target.value))}
+                className="w-full accent-cyan-400 cursor-pointer h-1.5"
+              />
+              <div className="flex justify-between text-[11px] font-mono font-semibold text-slate-400">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
             </div>
-            <div className={`text-xs font-bold truncate transition-colors ${
-              isLight ? 'text-slate-900 group-hover:text-indigo-600' : 'text-white group-hover:text-cyan-300'
-            }`}>
-              {currentTrack.icon} {currentTrack.title}
+          ) : (
+            <div className="mt-3 text-[11px] font-medium text-cyan-400 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+              <span>Giai điệu sóng Alpha cộng hưởng liên tục không ngắt quãng</span>
             </div>
+          )}
+
+          {/* Player Transport Controls */}
+          <div className="flex items-center gap-4 sm:gap-6 mt-4">
+            {/* Shuffle */}
+            <button
+              onClick={() => {
+                soundManager.playClickSound();
+                musicPlayer.toggleShuffle();
+              }}
+              className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                isShuffle
+                  ? 'text-cyan-400 bg-cyan-500/15'
+                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+              }`}
+              title={isShuffle ? 'Xáo trộn ngẫu nhiên: BẬT' : 'Xáo trộn: TẮT'}
+            >
+              <Shuffle className="w-4 h-4" />
+            </button>
+
+            {/* Prev */}
+            <button
+              onClick={() => {
+                soundManager.playClickSound();
+                musicPlayer.prevTrack();
+              }}
+              className="p-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
+              title="Bài trước"
+            >
+              <SkipBack className="w-5 h-5" />
+            </button>
+
+            {/* Play/Pause */}
+            <button
+              onClick={() => {
+                soundManager.playClickSound();
+                musicPlayer.togglePlay();
+              }}
+              className="w-13 h-13 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-indigo-500/30 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+              title={isPlaying ? 'Tạm dừng' : 'Phát nhạc'}
+            >
+              {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6 ml-0.5" />}
+            </button>
+
+            {/* Next */}
+            <button
+              onClick={() => {
+                soundManager.playClickSound();
+                musicPlayer.nextTrack();
+              }}
+              className="p-2.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 cursor-pointer transition-colors"
+              title="Bài kế tiếp"
+            >
+              <SkipForward className="w-5 h-5" />
+            </button>
+
+            {/* Loop Mode */}
+            <button
+              onClick={toggleLoopMode}
+              className={`p-2 rounded-xl transition-colors cursor-pointer ${
+                loopMode !== 'none'
+                  ? 'text-indigo-400 bg-indigo-500/15'
+                  : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+              }`}
+              title={
+                loopMode === 'all'
+                  ? 'Lặp lại toàn bộ danh sách'
+                  : loopMode === 'one'
+                  ? 'Lặp lại 1 bài hát hiện tại'
+                  : 'Không lặp'
+              }
+            >
+              {loopMode === 'one' ? <Repeat1 className="w-4 h-4" /> : <Repeat className="w-4 h-4" />}
+            </button>
           </div>
 
-          {/* Play/Pause Button */}
-          <button
-            type="button"
-            onClick={handleTogglePlay}
-            title={isPlaying ? 'Tạm dừng nhạc' : 'Phát nhạc tập trung'}
-            className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
+          {/* Volume Control Slider */}
+          <div className="flex items-center gap-3 w-full max-w-xs mt-3">
+            <button
+              onClick={() => musicPlayer.setVolume(volume > 0 ? 0 : 0.5)}
+              className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+            >
+              {volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.05"
+              value={volume}
+              onChange={(e) => musicPlayer.setVolume(Number(e.target.value))}
+              className="w-full accent-indigo-500 cursor-pointer h-1.5"
+            />
+            <span className="text-[11px] font-mono text-slate-400 w-8 text-right">
+              {Math.round(volume * 100)}%
+            </span>
+          </div>
+        </div>
+
+        {/* Playlist & Upload Section */}
+        <div className="p-4 sm:p-5 overflow-y-auto space-y-4 flex-1">
+          {/* Upload Button */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg,.aac"
+            onChange={handleFileUpload}
+            className="hidden"
+            id="music-file-upload"
+          />
+          <label
+            htmlFor="music-file-upload"
+            className={`border-2 border-dashed rounded-2xl p-3.5 flex items-center justify-between gap-3 cursor-pointer transition-all ${
               isLight
-                ? 'bg-indigo-50 hover:bg-indigo-100 text-indigo-700'
-                : 'bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 hover:text-white'
+                ? 'border-indigo-200 hover:border-indigo-500 bg-indigo-50/40 hover:bg-indigo-50/80'
+                : 'border-indigo-500/30 hover:border-indigo-400 bg-indigo-950/20 hover:bg-indigo-950/40'
             }`}
           >
-            {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 translate-x-0.5" />}
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+                <Upload className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="font-extrabold text-xs sm:text-sm">
+                  {isUploading ? 'Đang lưu bài hát...' : 'Tải nhạc từ máy tính lên'}
+                </div>
+                <div className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                  Hỗ trợ MP3, WAV, M4A, FLAC, OGG. Tự động lưu trên trình duyệt của bạn.
+                </div>
+              </div>
+            </div>
+            <span className="px-3 py-1.5 rounded-xl bg-indigo-600 text-white text-xs font-bold shrink-0 shadow-xs">
+              Chọn tệp nhạc
+            </span>
+          </label>
+
+          {errorMsg && (
+            <div className="p-2.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-xs font-semibold flex items-center gap-2">
+              <X className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {/* Track List */}
+          <div className="space-y-1.5">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between px-1">
+              <span>Danh sách bài hát ({allTracks.length})</span>
+              <span className="text-[10px] text-slate-400">Bấm để phát ngay</span>
+            </div>
+
+            <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+              {allTracks.map((track) => {
+                const isCurrent = track.id === currentTrack.id;
+                return (
+                  <div
+                    key={track.id}
+                    onClick={() => {
+                      soundManager.playClickSound();
+                      musicPlayer.setTrack(track.id);
+                    }}
+                    className={`p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer transition-all ${
+                      isCurrent
+                        ? isLight
+                          ? 'bg-indigo-50 border-indigo-300 text-indigo-900 shadow-xs'
+                          : 'bg-indigo-950/60 border-indigo-500/50 text-cyan-300 shadow-md'
+                        : isLight
+                        ? 'bg-slate-50/70 border-slate-200 hover:bg-slate-100 text-slate-700'
+                        : 'bg-slate-800/40 border-slate-700/60 hover:bg-slate-800 text-slate-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-lg bg-black/20 flex items-center justify-center text-sm shrink-0">
+                        {isCurrent && isPlaying ? (
+                          <Disc3 className="w-4 h-4 animate-spin text-cyan-400" />
+                        ) : (
+                          track.icon || '🎵'
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-bold text-xs sm:text-sm truncate">
+                            {track.title}
+                          </span>
+                          {track.isCustom && (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-cyan-500/20 text-cyan-400">
+                              Từ máy
+                            </span>
+                          )}
+                        </div>
+                        <p className={`text-[10px] truncate ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                          {track.desc}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {isCurrent && (
+                        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                      )}
+                      {track.isCustom && (
+                        <button
+                          onClick={(e) => handleRemoveTrack(e, track.id)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+                          title="Xóa bài hát này"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-3.5 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end">
+          <button
+            onClick={() => {
+              soundManager.playClickSound();
+              onClose();
+            }}
+            className="px-5 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 text-white text-xs sm:text-sm font-bold shadow-md hover:from-cyan-400 hover:to-indigo-500 cursor-pointer"
+          >
+            Đóng
           </button>
         </div>
       </div>
-
-      {/* Expanded Music Player Drawer / Modal */}
-      {isOpen && (
-        <div className={`fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 sm:p-4 backdrop-blur-sm animate-in fade-in ${
-          isLight ? 'bg-slate-950/45' : 'bg-slate-950/60'
-        }`}>
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className={`w-full max-w-md rounded-3xl shadow-2xl p-5 sm:p-6 space-y-5 animate-in zoom-in-95 card-top-accent transition-all ${
-              isLight
-                ? 'bg-white border border-slate-200 text-slate-800 shadow-indigo-100/50'
-                : 'bg-slate-900 border border-slate-700/90 text-white shadow-2xl'
-            }`}
-          >
-            {/* Header */}
-            <div className={`flex items-center justify-between border-b pb-3 ${isLight ? 'border-slate-200' : 'border-slate-800'}`}>
-              <div className="flex items-center gap-2">
-                <div className={`p-2 rounded-xl border ${
-                  isLight
-                    ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
-                    : 'bg-indigo-600/30 border-indigo-500/30 text-indigo-300'
-                }`}>
-                  <Headphones className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className={`text-base font-extrabold flex items-center gap-1.5 ${isLight ? 'text-slate-900' : 'text-white'}`}>
-                    <span>Nhạc nền Không gian Tập trung</span>
-                    <Sparkles className={`w-4 h-4 ${isLight ? 'text-indigo-600' : 'text-cyan-400'}`} />
-                  </h3>
-                  <p className={`text-[11px] ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                    Âm thanh sóng não và Lo-fi êm dịu giúp học Toán hiệu quả
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setIsOpen(false)}
-                className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
-                  isLight
-                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800'
-                    : 'bg-slate-800 text-slate-400 hover:text-white'
-                }`}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Currently Playing Card */}
-            <div className={`p-4 rounded-2xl border text-center space-y-3 transition-colors ${
-              isLight
-                ? 'bg-gradient-to-r from-indigo-50/80 via-white to-sky-50/80 border-indigo-200 text-slate-800'
-                : 'bg-gradient-to-r from-indigo-950/70 via-slate-950 to-purple-950/70 border-indigo-500/30 text-white'
-            }`}>
-              <div className="text-4xl animate-pulse">{currentTrack.icon}</div>
-              <div>
-                <div className={`text-sm font-bold ${isLight ? 'text-slate-900' : 'text-white'}`}>{currentTrack.title}</div>
-                <div className={`text-xs mt-0.5 ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{currentTrack.desc}</div>
-              </div>
-
-              {/* Playback Controls */}
-              <div className="flex items-center justify-center gap-4 pt-1">
-                <button
-                  onClick={handlePrevTrack}
-                  title="Bài trước"
-                  className={`p-2 rounded-full transition-colors cursor-pointer ${
-                    isLight
-                      ? 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs'
-                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white'
-                  }`}
-                >
-                  <SkipBack className="w-4 h-4" />
-                </button>
-
-                <button
-                  onClick={handleTogglePlay}
-                  className="p-3.5 rounded-full bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white shadow-lg shadow-indigo-500/30 transition-transform active:scale-95 cursor-pointer"
-                >
-                  {isPlaying ? (
-                    <Pause className="w-5 h-5 text-white" />
-                  ) : (
-                    <Play className="w-5 h-5 translate-x-0.5 text-white" />
-                  )}
-                </button>
-
-                <button
-                  onClick={handleNextTrack}
-                  title="Bài tiếp theo"
-                  className={`p-2 rounded-full transition-colors cursor-pointer ${
-                    isLight
-                      ? 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs'
-                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white'
-                  }`}
-                >
-                  <SkipForward className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Volume Slider */}
-              <div className="flex items-center gap-3 px-3 pt-2">
-                {volume === 0 ? (
-                  <VolumeX className="w-4 h-4 text-slate-400 shrink-0" />
-                ) : (
-                  <Volume2 className={`w-4 h-4 shrink-0 ${isLight ? 'text-indigo-600' : 'text-cyan-400'}`} />
-                )}
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={volume}
-                  onChange={handleVolumeChange}
-                  className="w-full accent-indigo-500 cursor-pointer"
-                />
-                <span className={`text-[11px] font-mono w-8 text-right ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
-                  {Math.round(volume * 100)}%
-                </span>
-              </div>
-            </div>
-
-            {/* Track Playlist Picker */}
-            <div className="space-y-2">
-              <div className={`text-xs font-bold uppercase tracking-wider px-1 ${isLight ? 'text-slate-600' : 'text-slate-400'}`}>
-                Chọn danh sách bản nhạc:
-              </div>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {MUSIC_TRACKS.map((track) => {
-                  const isCurrent = track.id === currentTrackId;
-                  return (
-                    <button
-                      key={track.id}
-                      onClick={() => handleTrackChange(track)}
-                      className={`w-full p-2.5 rounded-xl border text-left flex items-center justify-between transition-all cursor-pointer ${
-                        isCurrent
-                          ? isLight
-                            ? 'bg-indigo-50 border-indigo-400 text-indigo-950 ring-1 ring-indigo-400/40 shadow-xs'
-                            : 'bg-indigo-950/60 border-cyan-400/80 text-white ring-1 ring-cyan-400/40'
-                          : isLight
-                          ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
-                          : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:bg-slate-800/60 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5 truncate">
-                        <span className="text-xl">{track.icon}</span>
-                        <div className="truncate">
-                          <div className={`text-xs font-bold truncate ${isCurrent && isLight ? 'text-indigo-900' : ''}`}>{track.title}</div>
-                          <div className={`text-[10px] truncate ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>{track.desc}</div>
-                        </div>
-                      </div>
-                      {isCurrent && isPlaying && (
-                        <div className="flex items-end gap-0.5 h-3 shrink-0 ml-2">
-                          <span className={`w-1 rounded-full animate-bounce [animation-duration:0.6s] ${isLight ? 'bg-indigo-600' : 'bg-cyan-400'}`} />
-                          <span className={`w-1 rounded-full animate-bounce [animation-duration:0.9s] ${isLight ? 'bg-indigo-600' : 'bg-cyan-400'}`} />
-                          <span className={`w-1 rounded-full animate-bounce [animation-duration:0.7s] ${isLight ? 'bg-indigo-600' : 'bg-cyan-400'}`} />
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Quick close button */}
-            <button
-              onClick={() => setIsOpen(false)}
-              className={`w-full py-2.5 rounded-xl font-bold text-xs transition-colors cursor-pointer ${
-                isLight
-                  ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
-                  : 'bg-slate-800 hover:bg-slate-700 text-white'
-              }`}
-            >
-              Đóng bảng điều khiển
-            </button>
-          </div>
-        </div>
-      )}
-    </>
+    </div>
   );
 };

@@ -23,7 +23,7 @@ interface SpeedQuestion {
 }
 
 export const SpeedDuelMode: React.FC = () => {
-  const { user, addXp, theme } = useMathVerse();
+  const { user, addXp, theme, recordSpeedDuelScore } = useMathVerse();
   const isLight = theme === 'light';
 
   // Game configuration
@@ -41,13 +41,33 @@ export const SpeedDuelMode: React.FC = () => {
   const [currentQ, setCurrentQ] = useState<SpeedQuestion | null>(null);
   const [feedbackState, setFeedbackState] = useState<'correct' | 'wrong' | null>(null);
 
+  // High score tracking refs to eliminate React stale closure in timer
+  const scoreRef = useRef<number>(0);
+  const streakRef = useRef<number>(0);
+  const maxStreakRef = useRef<number>(0);
+  const correctCountRef = useRef<number>(0);
+  const totalAnsweredRef = useRef<number>(0);
+  const [isNewRecord, setIsNewRecord] = useState<boolean>(false);
+  const [previousRecord, setPreviousRecord] = useState<number>(0);
+
+  // AI MathBot Ghost Duel opponent simulation
+  const [enableAiDuel, setEnableAiDuel] = useState<boolean>(true);
+  const [aiScore, setAiScore] = useState<number>(0);
+  const aiTimerRef = useRef<any>(null);
+
   const timerRef = useRef<any>(null);
 
-  // High score storage in localStorage
+  // High score storage in localStorage & User Profile
   const [bestScores, setBestScores] = useState<{ [key: string]: number }>(() => {
     try {
       const saved = localStorage.getItem('mathverse_speed_best');
-      return saved ? JSON.parse(saved) : { rush: 0, grade: 0, mystery: 0 };
+      const local = saved ? JSON.parse(saved) : {};
+      const userScores = user?.speedDuelRecord?.modeScores || {};
+      return {
+        rush: Math.max(local.rush || 0, userScores.rush || 0),
+        grade: Math.max(local.grade || 0, userScores.grade || 0),
+        mystery: Math.max(local.mystery || 0, userScores.mystery || 0),
+      };
     } catch {
       return { rush: 0, grade: 0, mystery: 0 };
     }
@@ -202,6 +222,7 @@ export const SpeedDuelMode: React.FC = () => {
     soundManager.playClickSound();
     setIsPlaying(true);
     setIsFinished(false);
+    setIsNewRecord(false);
     setTimeLeft(60);
     setScore(0);
     setStreak(0);
@@ -209,12 +230,56 @@ export const SpeedDuelMode: React.FC = () => {
     setCorrectCount(0);
     setTotalAnswered(0);
     setFeedbackState(null);
+    setAiScore(0);
+
+    scoreRef.current = 0;
+    streakRef.current = 0;
+    maxStreakRef.current = 0;
+    correctCountRef.current = 0;
+    totalAnsweredRef.current = 0;
 
     const firstQ = generateQuestion(selectedMode);
     setCurrentQ(firstQ);
   };
 
-  // Timer Countdown
+  // Finish Game Handler (reads from scoreRef to avoid stale closure)
+  const finishGame = () => {
+    setIsPlaying(false);
+    setIsFinished(true);
+    if (timerRef.current) clearInterval(timerRef.current);
+    if (aiTimerRef.current) clearInterval(aiTimerRef.current);
+
+    const finalScore = scoreRef.current;
+    const currentBest = bestScores[selectedMode] || 0;
+    setPreviousRecord(currentBest);
+
+    // Calculate XP Reward based on score (min 30 XP, max 250 XP)
+    const xpReward = Math.min(250, Math.max(30, Math.round(finalScore * 0.8)));
+    addXp(xpReward, 'Đấu trường Tốc độ 60s');
+
+    // Update Personal Record in context, localStorage, and cloud
+    recordSpeedDuelScore(selectedMode, finalScore, maxStreakRef.current);
+
+    // Update Best Score persistently
+    if (finalScore > currentBest) {
+      setIsNewRecord(true);
+      const updated = { ...bestScores, [selectedMode]: finalScore };
+      setBestScores(updated);
+      try {
+        localStorage.setItem('mathverse_speed_best', JSON.stringify(updated));
+      } catch {}
+      soundManager.triggerConfetti();
+      soundManager.playLevelUpSound();
+    } else {
+      setIsNewRecord(false);
+    }
+
+    if (finalScore >= 200) {
+      soundManager.triggerConfetti();
+    }
+  };
+
+  // Timer Countdown with AI opponent simulation
   useEffect(() => {
     if (isPlaying && !isFinished) {
       timerRef.current = setInterval(() => {
@@ -230,52 +295,42 @@ export const SpeedDuelMode: React.FC = () => {
           return prev - 1;
         });
       }, 1000);
-    }
-    return () => clearInterval(timerRef.current);
-  }, [isPlaying, isFinished]);
 
-  // Finish Game Handler
-  const finishGame = () => {
-    setIsPlaying(false);
-    setIsFinished(true);
-
-    // Calculate XP Reward based on score (min 30 XP, max 200 XP)
-    const xpReward = Math.min(250, Math.max(30, Math.round(score * 0.8)));
-    addXp(xpReward, 'Đấu trường Tốc độ 60s');
-
-    // Update Best Score
-    setBestScores((prev) => {
-      const currentBest = prev[selectedMode] || 0;
-      if (score > currentBest) {
-        const updated = { ...prev, [selectedMode]: score };
-        try {
-          localStorage.setItem('mathverse_speed_best', JSON.stringify(updated));
-        } catch {}
-        soundManager.triggerConfetti();
-        return updated;
+      // AI MathBot simulation (earns points steadily across the 60s)
+      if (enableAiDuel) {
+        aiTimerRef.current = setInterval(() => {
+          if (Math.random() > 0.35) {
+            setAiScore((s) => s + (Math.random() > 0.5 ? 15 : 10));
+          }
+        }, 3000);
       }
-      return prev;
-    });
-
-    if (score >= 300) {
-      soundManager.triggerConfetti();
     }
-  };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      if (aiTimerRef.current) clearInterval(aiTimerRef.current);
+    };
+  }, [isPlaying, isFinished, enableAiDuel]);
 
   // Answer selection handler
   const handleAnswer = (chosen: number | string) => {
     if (!currentQ || !isPlaying) return;
 
-    setTotalAnswered((prev) => prev + 1);
+    totalAnsweredRef.current += 1;
+    setTotalAnswered(totalAnsweredRef.current);
 
     const isCorrect = chosen === currentQ.correctAnswer;
     if (isCorrect) {
       soundManager.playCorrectSound();
       setFeedbackState('correct');
-      const nextStreak = streak + 1;
+      const nextStreak = streakRef.current + 1;
+      streakRef.current = nextStreak;
       setStreak(nextStreak);
-      setMaxStreak((m) => Math.max(m, nextStreak));
-      setCorrectCount((c) => c + 1);
+      if (nextStreak > maxStreakRef.current) {
+        maxStreakRef.current = nextStreak;
+        setMaxStreak(nextStreak);
+      }
+      correctCountRef.current += 1;
+      setCorrectCount(correctCountRef.current);
 
       // Multiplier logic: streak >= 10: 3x, >= 5: 2x, >= 3: 1.5x
       let multiplier = 1;
@@ -285,10 +340,12 @@ export const SpeedDuelMode: React.FC = () => {
 
       const basePoints = 10;
       const points = Math.round(basePoints * multiplier);
-      setScore((s) => s + points);
+      scoreRef.current += points;
+      setScore(scoreRef.current);
     } else {
       soundManager.playWrongSound();
       setFeedbackState('wrong');
+      streakRef.current = 0;
       setStreak(0);
     }
 
@@ -430,8 +487,64 @@ export const SpeedDuelMode: React.FC = () => {
             </button>
           </div>
 
+          {/* Mode High Scores Breakdown */}
+          <div className="p-4 sm:p-5 rounded-2xl border bg-slate-500/5 space-y-3">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-amber-500" />
+              <span>Bảng Kỷ Lục Cá Nhân Của Bạn:</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className={`p-3 rounded-xl border flex items-center justify-between ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                <span className="text-xs font-semibold">⚡ Tốc độ tia chớp:</span>
+                <span className="font-mono font-black text-amber-500 text-sm">{bestScores.rush || 0} điểm</span>
+              </div>
+              <div className={`p-3 rounded-xl border flex items-center justify-between ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                <span className="text-xs font-semibold">🎯 Chiến binh Lớp {user?.grade}:</span>
+                <span className="font-mono font-black text-indigo-500 text-sm">{bestScores.grade || 0} điểm</span>
+              </div>
+              <div className={`p-3 rounded-xl border flex items-center justify-between ${isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'}`}>
+                <span className="text-xs font-semibold">🧩 Điền dấu & Ẩn số:</span>
+                <span className="font-mono font-black text-purple-500 text-sm">{bestScores.mystery || 0} điểm</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Toggle AI Opponent Duel */}
+          <div className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${
+            isLight ? 'bg-indigo-50/60 border-indigo-200' : 'bg-indigo-950/30 border-indigo-500/30'
+          }`}>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-black text-xl shrink-0">
+                🤖
+              </div>
+              <div>
+                <div className="font-extrabold text-xs sm:text-sm text-indigo-400">
+                  Chế độ Song Đấu cùng MathBot AI (60 giây)
+                </div>
+                <div className={`text-[11px] ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
+                  MathBot AI sẽ tính nhẩm và đua điểm số trực tiếp với em theo từng giây như đấu trường Esports!
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setEnableAiDuel(!enableAiDuel);
+                soundManager.playClickSound();
+              }}
+              className={`px-3.5 py-1.5 rounded-xl font-black text-xs border transition-all cursor-pointer shrink-0 ${
+                enableAiDuel
+                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
+                  : isLight ? 'bg-white border-slate-300 text-slate-500' : 'bg-slate-800 border-slate-700 text-slate-400'
+              }`}
+            >
+              {enableAiDuel ? '⚔️ ĐANG BẬT' : 'TẮT'}
+            </button>
+          </div>
+
           {/* Start Battle Button */}
-          <div className="text-center pt-4">
+          <div className="text-center pt-2">
             <button
               onClick={startGame}
               className="py-4 px-10 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 hover:scale-105 active:scale-95 text-white font-black text-lg sm:text-xl shadow-xl shadow-orange-500/25 transition-all cursor-pointer inline-flex items-center gap-3"
@@ -496,12 +609,29 @@ export const SpeedDuelMode: React.FC = () => {
               </div>
             </div>
 
-            {/* Current Score */}
+            {/* Current Score & Duel status */}
             <div className="text-right">
               <div className="text-[11px] font-bold text-slate-400">Điểm số</div>
               <div className="text-2xl font-black text-amber-500 font-mono">{score}</div>
             </div>
           </div>
+
+          {/* AI Opponent Battle Bar if enabled */}
+          {enableAiDuel && (
+            <div className={`flex items-center justify-between px-3.5 py-2 rounded-xl border text-xs ${
+              isLight ? 'bg-slate-100 border-slate-200' : 'bg-slate-950/80 border-slate-800'
+            }`}>
+              <div className="flex items-center gap-1.5 font-bold text-amber-500">
+                <span>🧑‍🚀 Bạn: {score} đ</span>
+              </div>
+              <div className="text-[10px] font-black tracking-wider text-slate-400 uppercase flex items-center gap-1">
+                <span>⚔️ So tài cùng MathBot AI</span>
+              </div>
+              <div className="flex items-center gap-1.5 font-bold text-cyan-400">
+                <span>🤖 MathBot: {aiScore} đ</span>
+              </div>
+            </div>
+          )}
 
           {/* Time Progress Bar */}
           <div className="w-full h-2 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-800">
@@ -572,6 +702,41 @@ export const SpeedDuelMode: React.FC = () => {
               Tuyệt vời lắm! Em đã hoàn thành xuất sắc thử thách 60 giây.
             </p>
           </div>
+
+          {/* New Record Banner if beaten */}
+          {isNewRecord && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-yellow-500/20 border-2 border-amber-400 text-amber-500 dark:text-amber-300 font-black shadow-lg">
+              <div className="text-base sm:text-lg flex items-center justify-center gap-2">
+                <Sparkles className="w-5 h-5 text-yellow-400" />
+                <span>🏆 KỶ LỤC CÁ NHÂN MỚI ĐÃ ĐƯỢC THIẾT LẬP!</span>
+                <Sparkles className="w-5 h-5 text-yellow-400" />
+              </div>
+              <p className="text-xs font-semibold text-slate-600 dark:text-slate-300 mt-1">
+                Điểm số {score} điểm đã phá vỡ kỷ lục cũ ({previousRecord} điểm) của chế độ này!
+              </p>
+            </div>
+          )}
+
+          {/* AI Opponent Outcome */}
+          {enableAiDuel && (
+            <div
+              className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-2 ${
+                score > aiScore
+                  ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-500'
+                  : score === aiScore
+                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-500'
+                  : 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+              }`}
+            >
+              {score > aiScore ? (
+                <span>🎉 Em đã chiến thắng MathBot AI ({score} vs {aiScore} đ)! Phản xạ siêu đỉnh!</span>
+              ) : score === aiScore ? (
+                <span>🤝 Bất phân thắng bại với MathBot AI ({score} vs {aiScore} đ)!</span>
+              ) : (
+                <span>🤖 MathBot AI dẫn trước ({aiScore} vs {score} đ)! Hãy phục thù ở trận sau nhé!</span>
+              )}
+            </div>
+          )}
 
           {/* Summary Metric Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-2xl mx-auto">

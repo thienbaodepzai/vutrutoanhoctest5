@@ -8,6 +8,9 @@ import {
   unbanUserAccount,
   adminDeleteSurveyById,
   setPreviewAsStudentMode,
+  appointAdminUser,
+  revokeAdminUser,
+  checkIsRootAdmin,
   ROOT_ADMIN_EMAIL,
 } from '../utils/adminUtils';
 import { useUserFeedbackStats } from '../utils/userSurvey';
@@ -29,6 +32,9 @@ import {
   Eye,
   Lock,
   UserCheck,
+  UserPlus,
+  UserMinus,
+  Users,
 } from 'lucide-react';
 
 export const AdminDashboardView: React.FC = () => {
@@ -49,7 +55,13 @@ export const AdminDashboardView: React.FC = () => {
   const [banReason, setBanReason] = useState('Vi phạm quy định cộng đồng MathVerse');
   const [banFeedback, setBanFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
 
-  // Leaderboard members list for quick 1-click Ban
+  // Form: Appoint New Admin
+  const [newAdminName, setNewAdminName] = useState('');
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [newAdminRole, setNewAdminRole] = useState<'admin' | 'moderator'>('admin');
+  const [appointFeedback, setAppointFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
+
+  // Leaderboard members list for quick 1-click Ban or Appoint
   const [members, setMembers] = useState<LeaderboardEntry[]>([]);
 
   useEffect(() => {
@@ -398,7 +410,7 @@ export const AdminDashboardView: React.FC = () => {
           </div>
         </div>
 
-        {/* SECTION 2: QUYỀN ADMIN ĐỘC QUYỀN (CHỈ MÌNH BẠN) */}
+        {/* SECTION 2: BỔ NHIỆM & PHÂN QUYỀN QUẢN TRỊ VIÊN (ADMIN) */}
         <div
           className={`p-6 rounded-3xl border space-y-5 shadow-lg flex flex-col justify-between ${
             isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
@@ -408,58 +420,275 @@ export const AdminDashboardView: React.FC = () => {
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-lg font-extrabold flex items-center gap-2 text-indigo-500">
                 <UserCheck className="w-5 h-5" />
-                <span>2. Quyền Quản trị Độc quyền</span>
+                <span>2. Bổ nhiệm & Phân quyền Quản trị viên</span>
               </h2>
               <span className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-                Chỉ 1 Admin duy nhất
+                {1 + (store.delegatedAdmins || []).length} Quản trị viên
               </span>
             </div>
 
+            {/* Root Admin Info Card */}
             <div
-              className={`p-5 rounded-2xl border space-y-3 ${
-                isLight ? 'bg-indigo-50/60 border-indigo-200' : 'bg-indigo-950/30 border-indigo-500/30'
+              className={`p-4 rounded-2xl border flex items-center justify-between gap-3 ${
+                isLight ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200 text-slate-800' : 'bg-gradient-to-r from-amber-950/40 to-orange-950/40 border-amber-500/30 text-white'
               }`}
             >
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 text-white flex items-center justify-center font-black text-xl shadow-md">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-600 text-white flex items-center justify-center font-black text-lg shadow-md shrink-0">
                   👑
                 </div>
                 <div>
-                  <h3 className="text-sm font-extrabold text-indigo-400">
-                    Chủ sở hữu hệ thống (Bạn)
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <span className="font-extrabold text-sm">{user.name}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 uppercase">
+                      Root Admin (Chủ sở hữu)
+                    </span>
+                  </div>
                   <p className={`text-xs ${isLight ? 'text-slate-600' : 'text-slate-300'}`}>
-                    Quyền Admin cao nhất • Toàn quyền kiểm soát và vận hành MathVerse
+                    Quyền tối cao • Chỉ bạn mới có thể bổ nhiệm hoặc thu hồi quyền Admin khác
                   </p>
                 </div>
               </div>
-
-              <div className="pt-2 border-t border-indigo-200 dark:border-indigo-500/30 space-y-2 text-xs">
-                <div className="flex items-center gap-2 text-emerald-500 font-semibold">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>Chỉ mình bạn mới được phép làm Admin (xác thực danh tính bảo mật).</span>
-                </div>
-                <div className="flex items-center gap-2 text-emerald-500 font-semibold">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>Không cho phép cấp quyền Admin cho bất kỳ ai khác.</span>
-                </div>
-                <div className="flex items-center gap-2 text-emerald-500 font-semibold">
-                  <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  <span>Tuyệt đối bảo mật thông tin, không hiển thị email ra ngoài giao diện.</span>
-                </div>
-              </div>
             </div>
-          </div>
 
-          <div
-            className={`p-4 rounded-2xl border text-xs space-y-1.5 ${
-              isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950 border-slate-800 text-slate-400'
-            }`}
-          >
-            <div className="font-bold text-slate-300">🛡️ Cơ chế bảo vệ Admin:</div>
-            <p>
-              Tài khoản Admin của bạn được bảo vệ miễn nhiễm với mọi lệnh Ban, không ai có thể can thiệp hay thay đổi vai trò quản trị của bạn.
-            </p>
+            {/* Form: Bổ nhiệm người khác làm Admin */}
+            {checkIsRootAdmin(user?.email) ? (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!newAdminName.trim() && !newAdminEmail.trim()) {
+                    setAppointFeedback({ type: 'err', text: 'Vui lòng nhập Tên hoặc Email người cần cấp quyền Admin!' });
+                    return;
+                  }
+                  soundManager.playLevelUpSound();
+                  appointAdminUser({
+                    name: newAdminName.trim() || newAdminEmail.trim().split('@')[0],
+                    email: newAdminEmail.trim(),
+                    role: newAdminRole,
+                    addedBy: `${user.name} (Chủ sở hữu)`,
+                  });
+                  setAppointFeedback({
+                    type: 'ok',
+                    text: `Đã cấp quyền ${newAdminRole === 'admin' ? 'Admin' : 'Kiểm duyệt viên'} thành công cho "${newAdminName.trim() || newAdminEmail.trim()}"!`,
+                  });
+                  setNewAdminName('');
+                  setNewAdminEmail('');
+                  setTimeout(() => setAppointFeedback(null), 4000);
+                }}
+                className="space-y-3 p-4 rounded-2xl border bg-slate-500/5 border-slate-300/40"
+              >
+                <div className="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
+                  <UserPlus className="w-4 h-4" />
+                  <span>Bổ nhiệm người dùng khác làm Quản trị viên</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold mb-1">Tên hiển thị người dùng *</label>
+                    <input
+                      type="text"
+                      value={newAdminName}
+                      onChange={(e) => setNewAdminName(e.target.value)}
+                      placeholder="VD: Nguyễn Văn A..."
+                      className={`w-full px-3 py-2 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                        isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+                      }`}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold mb-1">Email đăng nhập (tùy chọn)</label>
+                    <input
+                      type="email"
+                      value={newAdminEmail}
+                      onChange={(e) => setNewAdminEmail(e.target.value)}
+                      placeholder="VD: admin2@gmail.com..."
+                      className={`w-full px-3 py-2 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                        isLight ? 'bg-white border-slate-300 text-slate-900' : 'bg-slate-950 border-slate-800 text-white'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold mb-1">Cấp bậc phân quyền</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewAdminRole('admin')}
+                      className={`py-1.5 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                        newAdminRole === 'admin'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                          : isLight
+                          ? 'bg-white border-slate-200 text-slate-700'
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      👑 Admin Toàn Quyền
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewAdminRole('moderator')}
+                      className={`py-1.5 px-3 rounded-xl border text-xs font-bold cursor-pointer transition-all ${
+                        newAdminRole === 'moderator'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                          : isLight
+                          ? 'bg-white border-slate-200 text-slate-700'
+                          : 'bg-slate-950 border-slate-800 text-slate-400'
+                      }`}
+                    >
+                      🛡️ Kiểm Duyệt Viên
+                    </button>
+                  </div>
+                </div>
+
+                {appointFeedback && (
+                  <div
+                    className={`p-2.5 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+                      appointFeedback.type === 'ok'
+                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-500'
+                        : 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>{appointFeedback.text}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Xác nhận Bổ nhiệm Admin</span>
+                </button>
+
+                {/* Chọn nhanh từ thành viên Bảng xếp hạng */}
+                {members.length > 0 && (
+                  <div className="pt-1.5 space-y-1.5">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Hoặc chọn nhanh học sinh từ Bảng xếp hạng để nâng làm Admin:
+                    </div>
+                    <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                      {members
+                        .filter((m) => m.display_name.toLowerCase() !== user.name.toLowerCase())
+                        .slice(0, 8)
+                        .map((m) => {
+                          const isAlreadyAdmin = (store.delegatedAdmins || []).some(
+                            (a) => a.name.toLowerCase() === m.display_name.toLowerCase()
+                          );
+                          return (
+                            <div
+                              key={m.user_id}
+                              className={`px-2.5 py-1.5 rounded-lg border flex items-center justify-between text-xs ${
+                                isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-slate-800'
+                              }`}
+                            >
+                              <span className="truncate font-medium">
+                                {m.avatar} {m.display_name} (Lớp {m.grade})
+                              </span>
+                              {isAlreadyAdmin ? (
+                                <span className="text-[10px] font-bold text-emerald-500">Đã là Admin</span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setNewAdminName(m.display_name);
+                                    soundManager.playClickSound();
+                                  }}
+                                  className="text-[10px] font-bold text-indigo-500 hover:underline cursor-pointer"
+                                >
+                                  + Chọn
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+              </form>
+            ) : (
+              <div
+                className={`p-4 rounded-2xl border text-xs space-y-2 ${
+                  isLight ? 'bg-slate-50 border-slate-200 text-slate-600' : 'bg-slate-950 border-slate-800 text-slate-400'
+                }`}
+              >
+                <div className="font-bold text-indigo-400">👑 Quyền hạn Quản trị viên được ủy quyền:</div>
+                <p>
+                  Bạn đang đăng nhập với tư cách Quản trị viên được bổ nhiệm bởi Chủ sở hữu hệ thống. Bạn có quyền gửi thông báo, duyệt khảo sát và quản lý học sinh. Chỉ có Root Admin mới có quyền bổ nhiệm hoặc thu hồi quyền Admin khác.
+                </p>
+              </div>
+            )}
+
+            {/* Danh sách Admin được bổ nhiệm */}
+            <div className="space-y-2">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center justify-between">
+                <span>Danh sách Quản trị viên được bổ nhiệm ({(store.delegatedAdmins || []).length})</span>
+              </div>
+
+              {(store.delegatedAdmins || []).length === 0 ? (
+                <div
+                  className={`p-4 rounded-xl border text-center text-xs ${
+                    isLight ? 'bg-slate-50 border-slate-200 text-slate-500' : 'bg-slate-950/60 border-slate-800 text-slate-400'
+                  }`}
+                >
+                  Chưa có Quản trị viên nào khác được bổ nhiệm. Hãy dùng biểu mẫu phía trên để cấp quyền Admin cho người khác!
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {(store.delegatedAdmins || []).map((adm) => (
+                    <div
+                      key={adm.email || adm.name}
+                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+                        isLight ? 'bg-slate-50 border-slate-200' : 'bg-slate-950 border-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="text-base">{adm.avatar || '👑'}</span>
+                        <div className="truncate">
+                          <div className="font-bold flex items-center gap-1.5">
+                            <span className="truncate">{adm.name}</span>
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[10px] font-extrabold ${
+                                adm.role === 'admin'
+                                  ? 'bg-indigo-500/15 text-indigo-500 border border-indigo-500/30'
+                                  : 'bg-emerald-500/15 text-emerald-500 border border-emerald-500/30'
+                              }`}
+                            >
+                              {adm.role === 'admin' ? 'Admin' : 'Kiểm duyệt'}
+                            </span>
+                          </div>
+                          <div className={`text-[11px] truncate ${isLight ? 'text-slate-500' : 'text-slate-400'}`}>
+                            {adm.email} • Bổ nhiệm bởi {adm.addedBy}
+                          </div>
+                        </div>
+                      </div>
+
+                      {checkIsRootAdmin(user?.email) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            soundManager.playClickSound();
+                            revokeAdminUser(adm.email || adm.name);
+                            setAppointFeedback({
+                              type: 'ok',
+                              text: `Đã thu hồi quyền Admin của "${adm.name}"!`,
+                            });
+                            setTimeout(() => setAppointFeedback(null), 4000);
+                          }}
+                          className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500 text-rose-500 hover:text-white border border-rose-500/30 text-[11px] font-bold shrink-0 cursor-pointer flex items-center gap-1 transition-colors"
+                          title="Thu hồi quyền Admin"
+                        >
+                          <UserMinus className="w-3 h-3" />
+                          <span>Thu hồi</span>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

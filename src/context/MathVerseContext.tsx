@@ -102,6 +102,9 @@ interface MathVerseContextType {
   userEmail: string;
   updateUserEmail: (email: string) => void;
   bannedInfo: BannedUserEntry | null;
+  recordSpeedDuelScore: (mode: string, score: number, streak: number) => void;
+  syncAllDataNow: () => Promise<{ ok: boolean; message: string }>;
+  isSyncingData: boolean;
 }
 
 const STORAGE_KEY = 'mathverse_user_profile_v1';
@@ -1466,6 +1469,120 @@ export const MathVerseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     });
   };
 
+  const [isSyncingData, setIsSyncingData] = useState(false);
+
+  const recordSpeedDuelScore = useCallback(
+    (mode: string, score: number, streak: number) => {
+      setUser((prev) => {
+        if (!prev) return null;
+        const currentRecord = prev.speedDuelRecord || {
+          highScore: 0,
+          maxStreak: 0,
+          modeScores: {},
+        };
+        const prevModeBest = currentRecord.modeScores?.[mode] || 0;
+        const nextModeScores = {
+          ...(currentRecord.modeScores || {}),
+          [mode]: Math.max(prevModeBest, score),
+        };
+        const nextHighScore = Math.max(currentRecord.highScore || 0, score);
+        const nextMaxStreak = Math.max(currentRecord.maxStreak || 0, streak);
+
+        const updatedRecord = {
+          highScore: nextHighScore,
+          maxStreak: nextMaxStreak,
+          modeScores: nextModeScores,
+          lastAchievedAt: new Date().toISOString(),
+        };
+
+        const updated = {
+          ...prev,
+          speedDuelRecord: updatedRecord,
+        };
+        safeSaveProfileToStorage(updated);
+        return updated;
+      });
+
+      // Also persist to Supabase user metadata if logged in
+      if (isSupabaseConfigured && isAuthenticatedSupabase) {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session?.user) {
+            const prevMeta = session.user.user_metadata || {};
+            const prevRecord = prevMeta.speedDuelRecord || {};
+            const updatedRecord = {
+              highScore: Math.max(prevRecord.highScore || 0, score),
+              maxStreak: Math.max(prevRecord.maxStreak || 0, streak),
+              modeScores: {
+                ...(prevRecord.modeScores || {}),
+                [mode]: Math.max(prevRecord.modeScores?.[mode] || 0, score),
+              },
+              lastAchievedAt: new Date().toISOString(),
+            };
+            supabase.auth.updateUser({
+              data: { speedDuelRecord: updatedRecord },
+            }).catch(() => {});
+          }
+        });
+      }
+    },
+    [isAuthenticatedSupabase]
+  );
+
+  const syncAllDataNow = useCallback(async (): Promise<{ ok: boolean; message: string }> => {
+    if (!user) return { ok: false, message: 'Chưa có thông tin học sinh để đồng bộ.' };
+    setIsSyncingData(true);
+    try {
+      // 1. Force local storage save
+      safeSaveProfileToStorage(user);
+
+      // 2. Sync to online leaderboard with STRICT real user.xp
+      const targetUserId = supabaseUserIdRef.current || `local_${user.name}`;
+      const wrongCount = Math.max(0, user.answeredQuestionsCount - user.correctAnswersCount);
+      await syncUserLeaderboardEntry({
+        user_id: targetUserId,
+        display_name: user.name,
+        avatar: user.avatar,
+        grade: user.grade,
+        score: user.xp, // STRICT: ALWAYS exact authentic user.xp
+        completed_lessons: user.completedLessons.length,
+        in_progress_lessons: cloudProgress.filter((p) => p.status === 'in_progress').length,
+        correct_count: user.correctAnswersCount,
+        wrong_count: wrongCount,
+        updated_at: new Date().toISOString(),
+      });
+
+      // 3. Sync to Supabase Cloud if authenticated
+      if (isSupabaseConfigured && isAuthenticatedSupabase) {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.user) {
+          await supabase.auth.updateUser({
+            data: {
+              name: user.name,
+              avatar: user.avatar && user.avatar.length < 32000 ? user.avatar : '👨‍🚀',
+              grade: user.grade,
+              xp: user.xp,
+              streak: user.streak,
+              completedLessons: user.completedLessons,
+              speedDuelRecord: user.speedDuelRecord,
+            },
+          });
+          await syncCloudForUser(session.user);
+        }
+      }
+
+      setCloudSyncStatus('saved');
+      soundManager.playLevelUpSound();
+      return { ok: true, message: 'Đã đồng bộ hóa toàn bộ dữ liệu học tập lên máy chủ thành công!' };
+    } catch (err: any) {
+      setCloudSyncStatus('error');
+      return { ok: false, message: err?.message || 'Không thể kết nối đến máy chủ đồng bộ.' };
+    } finally {
+      setIsSyncingData(false);
+    }
+  }, [user, cloudProgress, isAuthenticatedSupabase, syncCloudForUser]);
+
   const userEmail = (user?.email || '').trim().toLowerCase();
   const isRootAdmin = userEmail === ROOT_ADMIN_EMAIL.toLowerCase();
   const isAdmin = checkIsUserAdmin(user?.name, userEmail, adminStore, false);
@@ -1533,6 +1650,9 @@ export const MathVerseProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         userEmail,
         updateUserEmail,
         bannedInfo,
+        recordSpeedDuelScore,
+        syncAllDataNow,
+        isSyncingData,
       }}
     >
       {children}
